@@ -6,7 +6,9 @@
 # Copyright 2020 by repodiac (see https://github.com/repodiac, also for information how to provide attribution to this work)
 #
 
-import re
+from typing import List, Optional, Tuple
+import os
+import subprocess
 
 import ahocorasick
 
@@ -24,41 +26,77 @@ MERGE_RIGHT = ['ff', 'au', 'ei', 'ung', 'ion', 'um',
 
 PLURAL_SUFFIX = ['en', 'er', 'e', 'n', 's']
 
-# transliteration is locale dependent: German uses ä -> ae, other locales (e.g. en_US, as iconv does) ä -> a
-TRANSLITERATION = {
-    'de': {'ä': 'ae', 'ö': 'oe', 'ü': 'ue', 'ß': 'ss'},
-    'default': {'ä': 'a', 'ö': 'o', 'ü': 'u', 'ß': 'ss'},
-}
+
+def _validate_locales(locales: List[str]) -> None:
+    installed = subprocess.run(
+        ['locale', '-a'],
+        capture_output=True,
+        check=True,
+        encoding='utf-8',
+    ).stdout.splitlines()
+
+    def normalize(name: str) -> str:
+        base, _, modifier = name.partition('@')
+        language, separator, codeset = base.partition('.')
+        normalized = language.lower().replace('-', '_')
+        if separator:
+            normalized += codeset.lower().replace('-', '')
+        if modifier:
+            normalized += '@' + modifier.lower()
+        return normalized
+
+    installed_locales = {normalize(name) for name in installed}
+    for locale in locales:
+        if normalize(locale) not in installed_locales:
+            raise ValueError("Locale '{}' is not installed".format(locale))
 
 
-def _transliteration_table(locale):
-    """
-    :param locale: locale name like 'de_DE', 'de-AT', 'en_US.UTF-8'; only the language part is evaluated
-    :return: translation table usable with str.translate()
-    """
-    language = re.split(r'[_\-.@]', locale.strip().lower())[0]
-    return str.maketrans(TRANSLITERATION.get(language, TRANSLITERATION['default']))
+def _transliterate_words(words: List[str], locale: str) -> List[str]:
+    env = os.environ.copy()
+    env['LC_CTYPE'] = locale
+    result = subprocess.run(
+        ['iconv', '-f', 'UTF-8', '-t', 'ASCII//TRANSLIT'],
+        input='\n'.join(words),
+        capture_output=True,
+        check=True,
+        encoding='utf-8',
+        env=env,
+    )
+    if result.stderr:
+        raise RuntimeError('iconv transliteration failed: ' + result.stderr.strip())
+    transliterated = result.stdout.splitlines()
+    if len(transliterated) != len(words):
+        raise RuntimeError('iconv returned an unexpected number of transliterated words')
+    return transliterated
 
 PLURAL_TRANSITION_VOWEL = {'ä': 'a',
                            'ü': 'u',
                            'ö': 'o'}
 
 
-def read_dictionary_from_file(input_file, transliteration_locales=None):
+def read_dictionary_from_file(input_file: str, encoding: str = 'utf8',
+                              transliteration_locales=None) -> ahocorasick.Automaton:
     """
     Load dictionary from file into efficient data structures for efficient search and retrieval
 
     :param input_file: a text file dictonary holding one item per line
-    :param transliteration_locales: optional locale name (e.g. 'de_DE') or list of locale names (e.g. ['de_DE', 'en_US']);
+    :param encoding: the encoding of the dictionary file
+    :param transliteration_locales: optional installed locale name (e.g. 'de_DE.UTF-8') or list of locale names
+        (e.g. ['de_DE.UTF-8', 'en_US.UTF-8']);
         if given, transliterated keys are additionally registered for dictionary entries, so that transliterated
-        compounds can be split (de: ä -> ae, other locales like en_US: ä -> a); default None: no transliteration
+        compounds can be split using iconv; each locale must be installed on the host; default None: no transliteration
     :return: ahocorasick.Automaton, data structure for efficient search and retrieval
     """
+    if transliteration_locales:
+        if isinstance(transliteration_locales, str):
+            transliteration_locales = [transliteration_locales]
+        _validate_locales(transliteration_locales)
+
     # initialize the efficient data structures
     A = ahocorasick.Automaton()
 
     print('Loading data file -', input_file)
-    with open(input_file, 'r', encoding='utf8') as f:
+    with open(input_file, 'r', encoding=encoding) as f:
         input_list = f.read().splitlines()
 
     # load one item per line
@@ -75,15 +113,12 @@ def read_dictionary_from_file(input_file, transliteration_locales=None):
     # additionally register transliterated keys, they map to the original dictionary word;
     # real dictionary entries are never overridden
     if transliteration_locales:
-        if isinstance(transliteration_locales, str):
-            transliteration_locales = [transliteration_locales]
-        tables = [_transliteration_table(loc) for loc in transliteration_locales]
-        for w in input_list:
-            if not w:
-                continue
-            key = w.lower()
-            for table in tables:
-                translit = key.translate(table)
+        words = [w for w in input_list if w]
+        for loc in transliteration_locales:
+            transliterations = _transliterate_words(words, loc)
+            for w, translit in zip(words, transliterations):
+                key = w.lower()
+                translit = translit.lower()
                 if translit != key and translit not in A:
                     A.add_word(translit, (w[0].isupper(), w, len(translit)))
 
@@ -93,7 +128,7 @@ def read_dictionary_from_file(input_file, transliteration_locales=None):
     return A
 
 
-def _is_abbreviation(tuple):
+def _is_abbreviation(tuple: Tuple[bool, str, int]) -> bool:
     """
     Checks if value can be interpreted as an abbreviation (thus, not a compound word)
 
@@ -109,7 +144,7 @@ def _is_abbreviation(tuple):
            or (len(tuple[1]) == 2 and tuple[1][0].isupper() and tuple[1][1].islower())
 
 
-def _check_if_suffix(item):
+def _check_if_suffix(item: str) -> Optional[str]:
     """
     Checks if item starts with a suffix from the list of common suffixes
 
@@ -124,7 +159,7 @@ def _check_if_suffix(item):
     return None
 
 
-def merge_fractions(dissection: list):
+def merge_fractions(dissection: List[str]) -> List[str]:
     """
     Simple method to merge fractions or artifacts as post-processing step after splitting up a compound word
     Merges are carried out, if pre- or suffix are found in the list of common pre-/suffixes; in particular this may be
@@ -133,6 +168,9 @@ def merge_fractions(dissection: list):
     :param dissection: list of split words
     :return: new list with merged split words, in case
     """
+
+    if not dissection:
+        return []
 
     cleaned = []
     ignore_next = False
@@ -156,7 +194,7 @@ def merge_fractions(dissection: list):
     return cleaned
 
 
-def compute_singular(item, ahocs):
+def compute_singular(item: str, ahocs: ahocorasick.Automaton) -> str:
     """
     Computes a singular form of the given item, uses two methods: a) looks up singular form in dictionary
     b) checks for "umlauts" and replaces them by their base vowel
@@ -182,7 +220,8 @@ def compute_singular(item, ahocs):
     return item
 
 
-def dissect(compound, ahocs, only_nouns=True, make_singular=False, mask_unknown=False):
+def dissect(compound: str, ahocs: ahocorasick.Automaton, only_nouns: bool = True,
+            make_singular: bool = False, mask_unknown: bool = False) -> List[str]:
     """
     Dissects any compound word if splits are to be found in loaded dictionary
 
@@ -280,24 +319,24 @@ def dissect(compound, ahocs, only_nouns=True, make_singular=False, mask_unknown=
 
     # post-corrections, e.g. merge invalid splits if split and succeeding split word merged
     # is a valid entry in the dictionary
-    if only_nouns:
-        # workaround to prevent unwanted behaviour (only nouns are eligible)
-        results[0] = results[0][0].upper() + results[0][1:]
+    if only_nouns and results:
+        results[0] = results[0].title()
         for ri in range(len(results) - 1):
             if results[ri].islower():
                 merged = results[ri] + results[ri + 1].lower()
                 if ahocs.exists(merged):
-                    part1 = results[ri]
-                    part2 = results[ri + 1]
-                    results.insert(ri, merged[0].upper() + merged[1:])
-                    results.remove(part1)
-                    results.remove(part2)
+                    results[ri] = merged.title()
+                    results[ri + 1] = ""
                 else:
-                    # workaround for single letters (most likely artifacts)
                     if len(results[ri]) == 1:
-                        aritfact_single_letter = results[ri]
-                        results[ri-1] += aritfact_single_letter
-                        results.remove(aritfact_single_letter)
+                        artifact_single_letter = results[ri]
+                        for i in range(1, ri + 1):
+                            if results[ri - i]:
+                                results[ri - i] += artifact_single_letter
+                                break
+                        results[ri] = ""
+
+    results = list(filter(None, results))
 
     # if set, compute singular version of each split word
     if make_singular:
