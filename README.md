@@ -85,10 +85,10 @@ It has the following input parameters:
 Optionally, compounds written with transliterated umlauts, e.g. *Donaudampfschifffahrtskapitaensmuetzenabzeichen*, can be split as well. Pass the target locale(s) when loading the dictionary:
 
 ```
-ahocs = comp_split.read_dictionary_from_file(input_file, transliteration_locales='de_DE')
+ahocs = comp_split.read_dictionary_from_file(input_file, transliteration_locales='de_DE.UTF-8')
 ```
 
-Transliteration is locale dependent: for `de_*` it is `ä->ae, ö->oe, ü->ue, ß->ss`, for other locales (e.g. `en_US`, like `iconv` does) `ä->a, ö->o, ü->u, ß->ss`. A list of locales may be given. Transliterated keys never override real dictionary entries, and the returned split words are the original dictionary forms (with umlauts). It is off by default; the automaton must be rebuilt to change it.
+Transliteration uses the system `iconv` command with `ASCII//TRANSLIT`; each requested locale is checked against the installed system locales, and an error is raised if any is missing. Output follows that system's iconv transliteration rules. A list of locales may be given. Transliterated keys never override real dictionary entries, and the returned split words are the original dictionary forms (with umlauts). It is off by default; the automaton must be rebuilt to change it.
 
 ## Performance
 
