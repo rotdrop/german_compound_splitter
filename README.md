@@ -80,6 +80,16 @@ It has the following input parameters:
 | `make_singular` | `False` | compute simple approach to extract singular form for each split |
 | `mask_unknown` | `False` | mask each part which is unknown from the dictionary, if `False`, the method tries to insert it anyway as lower-case; often this is still valid, but can come with artifacts sometimes |
 
+## Transliterated Input
+
+Optionally, compounds written with transliterated umlauts, e.g. *Donaudampfschifffahrtskapitaensmuetzenabzeichen*, can be split as well. Pass the target locale(s) when loading the dictionary:
+
+```
+ahocs = comp_split.read_dictionary_from_file(input_file, transliteration_locales='de_DE')
+```
+
+Transliteration is locale dependent: for `de_*` it is `ä->ae, ö->oe, ü->ue, ß->ss`, for other locales (e.g. `en_US`, like `iconv` does) `ä->a, ö->o, ü->u, ß->ss`. A list of locales may be given. Transliterated keys never override real dictionary entries, and the returned split words are the original dictionary forms (with umlauts). It is off by default; the automaton must be rebuilt to change it.
+
 ## Performance
 
 If you have multiple splittings (or multiple compound words) to process, it is advisable to load the dictionary only **once** and reuse the `ahocorasick` automaton every other time -- loading the dictionary can take a few seconds depending on your machine. However, the actual split up work is blazing fast, thanks to `pyahocorasick`'s implementation and you can easily process a lot of compound words in very little time.
