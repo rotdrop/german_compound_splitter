@@ -2,6 +2,8 @@
 
 [![codecov](https://codecov.io/gh/rotdrop/german_compound_splitter/branch/master/graph/badge.svg)](https://codecov.io/gh/rotdrop/german_compound_splitter)
 
+This package is based on the work of [repodiac](https://github.com/repodiac), the author of the [upstream german_compound_splitter package](https://github.com/repodiac/german_compound_splitter), and has been significantly modified. The original author is in no way responsible for the contents of this repository.
+
 **german_compound_splitter** is a Python module to split up German compound words (for instance the famous *Donaudampfschifffahrtskapitänsmützenabzeichen*), based on a given external German dictionary and a highly-efficient implementation of the [Aho–Corasick algorithm](https://en.wikipedia.org/wiki/Aho%E2%80%93Corasick_algorithm), [pyahocorasick](https://pypi.org/project/pyahocorasick/), for multi-pattern string search and retrieval.
 
 This method works really well compared to the available other alternatives I know of for German compound splitting. Depending on your use case you may want normalized forms of the resulting components (split words), most likely the singular form. You can try `make_singular=True`, it works for me in most cases.
