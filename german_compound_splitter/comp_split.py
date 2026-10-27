@@ -7,7 +7,8 @@
 #
 
 from typing import List, Optional, Tuple
-import re
+import os
+import subprocess
 
 import ahocorasick
 
@@ -25,20 +26,48 @@ MERGE_RIGHT = ['ff', 'au', 'ei', 'ung', 'ion', 'um',
 
 PLURAL_SUFFIX = ['en', 'er', 'e', 'n', 's']
 
-# transliteration is locale dependent: German uses ä -> ae, other locales (e.g. en_US, as iconv does) ä -> a
-TRANSLITERATION = {
-    'de': {'ä': 'ae', 'ö': 'oe', 'ü': 'ue', 'ß': 'ss'},
-    'default': {'ä': 'a', 'ö': 'o', 'ü': 'u', 'ß': 'ss'},
-}
+
+def _validate_locales(locales: List[str]) -> None:
+    installed = subprocess.run(
+        ['locale', '-a'],
+        capture_output=True,
+        check=True,
+        encoding='utf-8',
+    ).stdout.splitlines()
+
+    def normalize(name: str) -> str:
+        base, _, modifier = name.partition('@')
+        language, separator, codeset = base.partition('.')
+        normalized = language.lower().replace('-', '_')
+        if separator:
+            normalized += codeset.lower().replace('-', '')
+        if modifier:
+            normalized += '@' + modifier.lower()
+        return normalized
+
+    installed_locales = {normalize(name) for name in installed}
+    for locale in locales:
+        if normalize(locale) not in installed_locales:
+            raise ValueError("Locale '{}' is not installed".format(locale))
 
 
-def _transliteration_table(locale):
-    """
-    :param locale: locale name like 'de_DE', 'de-AT', 'en_US.UTF-8'; only the language part is evaluated
-    :return: translation table usable with str.translate()
-    """
-    language = re.split(r'[_\-.@]', locale.strip().lower())[0]
-    return str.maketrans(TRANSLITERATION.get(language, TRANSLITERATION['default']))
+def _transliterate_words(words: List[str], locale: str) -> List[str]:
+    env = os.environ.copy()
+    env['LC_CTYPE'] = locale
+    result = subprocess.run(
+        ['iconv', '-f', 'UTF-8', '-t', 'ASCII//TRANSLIT'],
+        input='\n'.join(words),
+        capture_output=True,
+        check=True,
+        encoding='utf-8',
+        env=env,
+    )
+    if result.stderr:
+        raise RuntimeError('iconv transliteration failed: ' + result.stderr.strip())
+    transliterated = result.stdout.splitlines()
+    if len(transliterated) != len(words):
+        raise RuntimeError('iconv returned an unexpected number of transliterated words')
+    return transliterated
 
 PLURAL_TRANSITION_VOWEL = {'ä': 'a',
                            'ü': 'u',
@@ -52,11 +81,17 @@ def read_dictionary_from_file(input_file: str, encoding: str = 'utf8',
 
     :param input_file: a text file dictonary holding one item per line
     :param encoding: the encoding of the dictionary file
-    :param transliteration_locales: optional locale name (e.g. 'de_DE') or list of locale names (e.g. ['de_DE', 'en_US']);
+    :param transliteration_locales: optional installed locale name (e.g. 'de_DE.UTF-8') or list of locale names
+        (e.g. ['de_DE.UTF-8', 'en_US.UTF-8']);
         if given, transliterated keys are additionally registered for dictionary entries, so that transliterated
-        compounds can be split (de: ä -> ae, other locales like en_US: ä -> a); default None: no transliteration
+        compounds can be split using iconv; each locale must be installed on the host; default None: no transliteration
     :return: ahocorasick.Automaton, data structure for efficient search and retrieval
     """
+    if transliteration_locales:
+        if isinstance(transliteration_locales, str):
+            transliteration_locales = [transliteration_locales]
+        _validate_locales(transliteration_locales)
+
     # initialize the efficient data structures
     A = ahocorasick.Automaton()
 
@@ -78,15 +113,12 @@ def read_dictionary_from_file(input_file: str, encoding: str = 'utf8',
     # additionally register transliterated keys, they map to the original dictionary word;
     # real dictionary entries are never overridden
     if transliteration_locales:
-        if isinstance(transliteration_locales, str):
-            transliteration_locales = [transliteration_locales]
-        tables = [_transliteration_table(loc) for loc in transliteration_locales]
-        for w in input_list:
-            if not w:
-                continue
-            key = w.lower()
-            for table in tables:
-                translit = key.translate(table)
+        words = [w for w in input_list if w]
+        for loc in transliteration_locales:
+            transliterations = _transliterate_words(words, loc)
+            for w, translit in zip(words, transliterations):
+                key = w.lower()
+                translit = translit.lower()
                 if translit != key and translit not in A:
                     A.add_word(translit, (w[0].isupper(), w, len(translit)))
 
