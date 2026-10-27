@@ -7,6 +7,7 @@
 #
 
 from typing import List, Optional, Tuple
+import difflib
 import locale
 import os
 import subprocess
@@ -76,13 +77,76 @@ def _transliterate_words(words: List[str], locale: str) -> List[str]:
         raise RuntimeError('iconv returned an unexpected number of transliterated words')
     return transliterated
 
+
+
+class TransliteratingAutomaton:
+    """
+    Wraps an ahocorasick.Automaton together with the transliteration locales used to build it.
+    All other attributes (iter, get, exists, ...) and `in` are delegated to the wrapped automaton.
+    """
+
+    def __init__(self, automaton: ahocorasick.Automaton, locales: Optional[List[str]] = None):
+        self.automaton = automaton
+        self.locales = list(locales or [])
+
+    def __getattr__(self, name):
+        if name in ('automaton', 'locales'):
+            raise AttributeError(name)
+        return getattr(self.automaton, name)
+
+    def __contains__(self, key) -> bool:
+        return key in self.automaton
+
+    def __len__(self) -> int:
+        return len(self.automaton)
+
+    def detect_locale(self, compound: str, words: List[str]) -> Optional[str]:
+        """
+        Select the locale which best reproduces the (transliterated) compound from the split words by test
+        transliteration. Candidates are ranked by (1) the concatenated transliteration equals the compound,
+        (2) number of umlaut/ß words whose transliteration is found (in order) in the compound, since these
+        must always have a counterpart in the input, (3) number of characters of words found in order as
+        sub-words of the compound, (4) similarity of the concatenation to the compound. A single locale is returned as is; remaining ties favour the earlier locale.
+        """
+        if not self.locales:
+            return None
+        if len(self.locales) == 1:
+            return self.locales[0]
+        target = compound.lower()
+        best, best_score = self.locales[0], None
+        for loc in self.locales:
+            translits = [t.lower() for t in _transliterate_words(words, loc)]
+            # every umlaut/ß of a word must show up as a transliteration in the input, so match the
+            # transliterated words in order against the compound
+            cursor = 0
+            umlaut_hits = hit_chars = 0
+            for word, t in zip(words, translits):
+                idx = target.find(t, cursor) if t else -1
+                if idx < 0:
+                    continue
+                cursor = idx + len(t)
+                hit_chars += len(t)
+                if any(c in _TRANSLITERATABLE for c in word.lower()):
+                    umlaut_hits += 1
+            joined = ''.join(translits)
+            score = (
+                joined == target,
+                umlaut_hits,
+                hit_chars,
+                difflib.SequenceMatcher(None, target, joined, autojunk=False).ratio(),
+            )
+            if best_score is None or score > best_score:
+                best, best_score = loc, score
+        return best
+
+
 PLURAL_TRANSITION_VOWEL = {'ä': 'a',
                            'ü': 'u',
                            'ö': 'o'}
 
 
 def read_dictionary_from_file(input_file: str, encoding: str = 'utf8',
-                              transliteration_locales=None) -> ahocorasick.Automaton:
+                              transliteration_locales=None) -> 'TransliteratingAutomaton':
     """
     Load dictionary from file into efficient data structures for efficient search and retrieval
 
@@ -92,7 +156,7 @@ def read_dictionary_from_file(input_file: str, encoding: str = 'utf8',
         (e.g. ['de_DE', 'en_US']);
         if given, transliterated keys are additionally registered for dictionary entries, so that transliterated
         compounds can be split using iconv; each locale must be installed on the host; default None: no transliteration
-    :return: ahocorasick.Automaton, data structure for efficient search and retrieval
+    :return: TransliteratingAutomaton, wrapping the ahocorasick.Automaton and the locales used to build it
     """
     if transliteration_locales:
         if isinstance(transliteration_locales, str):
@@ -133,7 +197,7 @@ def read_dictionary_from_file(input_file: str, encoding: str = 'utf8',
     # generate with data
     A.make_automaton()
 
-    return A
+    return TransliteratingAutomaton(A, transliteration_locales)
 
 
 def _is_abbreviation(tuple: Tuple[bool, str, int]) -> bool:
@@ -239,9 +303,11 @@ def dissect(compound: str, ahocs: ahocorasick.Automaton, only_nouns: bool = True
     :param only_nouns: if True (default), return only recognized nouns, no pre- or suffixes and no verbs or adjectives
     :param make_singular: if True, compute simple approach to extract singular form for each split word, default is False
     :param mask_unknown: if True, mask each part which is unknown from the dictionary, if False (default) the method tries to insert it anyway as lower-case; often this is still valid, but can come with artifacts sometimes
-    :param transliteration_locale: optional locale name (e.g. 'de_DE'); if given and the compound contains none of
-        the characters ä, ö, ü, ß but any split word does, the split words are transliterated with iconv for this
-        locale (e.g. 'Schuhe' stays, 'Brötchen' -> 'Broetchen' for de_DE); default None: no transliteration
+    :param transliteration_locale: optional locale name (e.g. 'de_DE') overriding the automatic choice; if the
+        compound contains none of the characters ä, ö, ü, ß but any split word does, the split words are
+        transliterated with iconv (e.g. 'Brötchen' -> 'Broetchen' for de_DE). Default None: use the locales stored
+        in `ahocs` (a TransliteratingAutomaton): a single locale is used directly, among several the best fitting
+        one is detected; without stored locales no transliteration takes place
     :return: list of strings, holding all the split words from the compound
     """
 
@@ -355,9 +421,12 @@ def dissect(compound: str, ahocs: ahocorasick.Automaton, only_nouns: bool = True
         for ri in range(len(results)):
             results[ri] = compute_singular(results[ri], ahocs)
 
-    if transliteration_locale and results \
+    if results \
             and not any(c in _TRANSLITERATABLE for c in compound.lower()) \
             and any(c in _TRANSLITERATABLE for r in results for c in r.lower()):
-        results = _transliterate_words(results, transliteration_locale)
+        if not transliteration_locale and isinstance(ahocs, TransliteratingAutomaton):
+            transliteration_locale = ahocs.detect_locale(compound, results)
+        if transliteration_locale:
+            results = _transliterate_words(results, transliteration_locale)
 
     return results
