@@ -1,6 +1,6 @@
 # Contributors
 
-Name, email and profile are taken from the public GitHub profile (or commit metadata) where available.
+Names and email addresses are listed only if publicly available on the contributor's GitHub profile; emails found only in commit metadata are not added.
 
 ## Upstream
 
