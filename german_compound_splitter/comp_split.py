@@ -7,6 +7,7 @@
 #
 
 from typing import List, Optional, Tuple
+import locale
 import os
 import subprocess
 
@@ -28,32 +29,36 @@ PLURAL_SUFFIX = ['en', 'er', 'e', 'n', 's']
 
 
 def _validate_locales(locales: List[str]) -> None:
-    installed = subprocess.run(
-        ['locale', '-a'],
-        capture_output=True,
-        check=True,
-        encoding='utf-8',
-    ).stdout.splitlines()
+    saved = locale.setlocale(locale.LC_CTYPE)
+    try:
+        for name in locales:
+            try:
+                locale.setlocale(locale.LC_CTYPE, name)
+            except locale.Error:
+                raise ValueError(f"Locale '{name}' is not installed") from None
+    finally:
+        locale.setlocale(locale.LC_CTYPE, saved)
 
-    def normalize(name: str) -> str:
-        base, _, modifier = name.partition('@')
-        language, separator, codeset = base.partition('.')
-        normalized = language.lower().replace('-', '_')
-        if separator:
-            normalized += codeset.lower().replace('-', '')
-        if modifier:
-            normalized += '@' + modifier.lower()
-        return normalized
 
-    installed_locales = {normalize(name) for name in installed}
-    for locale in locales:
-        if normalize(locale) not in installed_locales:
-            raise ValueError("Locale '{}' is not installed".format(locale))
+def _validate_iconv_locales(locales: List[str]) -> None:
+    for name in locales:
+        env = os.environ.copy()
+        env['LC_ALL'] = name
+        result = subprocess.run(
+            ['iconv', '-f', 'UTF-8', '-t', 'ASCII//TRANSLIT'],
+            input='ä',
+            capture_output=True,
+            check=True,
+            encoding='utf-8',
+            env=env,
+        )
+        if '?' in result.stdout:
+            raise ValueError("Locale '{}' does not support iconv transliteration".format(name))
 
 
 def _transliterate_words(words: List[str], locale: str) -> List[str]:
     env = os.environ.copy()
-    env['LC_CTYPE'] = locale
+    env['LC_ALL'] = locale
     result = subprocess.run(
         ['iconv', '-f', 'UTF-8', '-t', 'ASCII//TRANSLIT'],
         input='\n'.join(words),
@@ -81,8 +86,8 @@ def read_dictionary_from_file(input_file: str, encoding: str = 'utf8',
 
     :param input_file: a text file dictonary holding one item per line
     :param encoding: the encoding of the dictionary file
-    :param transliteration_locales: optional installed locale name (e.g. 'de_DE.UTF-8') or list of locale names
-        (e.g. ['de_DE.UTF-8', 'en_US.UTF-8']);
+    :param transliteration_locales: optional locale name accepted by libc (e.g. 'de_DE') or list of locale names
+        (e.g. ['de_DE', 'en_US']);
         if given, transliterated keys are additionally registered for dictionary entries, so that transliterated
         compounds can be split using iconv; each locale must be installed on the host; default None: no transliteration
     :return: ahocorasick.Automaton, data structure for efficient search and retrieval
@@ -91,6 +96,7 @@ def read_dictionary_from_file(input_file: str, encoding: str = 'utf8',
         if isinstance(transliteration_locales, str):
             transliteration_locales = [transliteration_locales]
         _validate_locales(transliteration_locales)
+        _validate_iconv_locales(transliteration_locales)
 
     # initialize the efficient data structures
     A = ahocorasick.Automaton()
