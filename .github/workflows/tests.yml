@@ -18,6 +18,19 @@ jobs:
           python-version: ${{ matrix.python-version }}
           allow-prereleases: true
       - name: Install dependencies
-        run: python -m pip install .
+        run: python -m pip install . coverage
       - name: Run tests
-        run: python -m unittest discover -s tests -v
+        run: |
+          if [ "${{ matrix.python-version }}" = "3.13" ]; then
+            PYTHONPATH=src coverage run --source=src/german_compound_splitter -m unittest discover -s tests -v
+            coverage xml
+          else
+            python -m unittest discover -s tests -v
+          fi
+      - name: Upload coverage to Codecov
+        if: matrix.python-version == '3.13'
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage.xml
+          fail_ci_if_error: true
