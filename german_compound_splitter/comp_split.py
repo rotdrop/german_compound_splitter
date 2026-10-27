@@ -7,6 +7,7 @@
 #
 
 from typing import List, Optional, Tuple
+import re
 
 import ahocorasick
 
@@ -24,17 +25,36 @@ MERGE_RIGHT = ['ff', 'au', 'ei', 'ung', 'ion', 'um',
 
 PLURAL_SUFFIX = ['en', 'er', 'e', 'n', 's']
 
+# transliteration is locale dependent: German uses ä -> ae, other locales (e.g. en_US, as iconv does) ä -> a
+TRANSLITERATION = {
+    'de': {'ä': 'ae', 'ö': 'oe', 'ü': 'ue', 'ß': 'ss'},
+    'default': {'ä': 'a', 'ö': 'o', 'ü': 'u', 'ß': 'ss'},
+}
+
+
+def _transliteration_table(locale):
+    """
+    :param locale: locale name like 'de_DE', 'de-AT', 'en_US.UTF-8'; only the language part is evaluated
+    :return: translation table usable with str.translate()
+    """
+    language = re.split(r'[_\-.@]', locale.strip().lower())[0]
+    return str.maketrans(TRANSLITERATION.get(language, TRANSLITERATION['default']))
+
 PLURAL_TRANSITION_VOWEL = {'ä': 'a',
                            'ü': 'u',
                            'ö': 'o'}
 
 
-def read_dictionary_from_file(input_file: str, encoding: str = 'utf8') -> ahocorasick.Automaton:
+def read_dictionary_from_file(input_file: str, encoding: str = 'utf8',
+                              transliteration_locales=None) -> ahocorasick.Automaton:
     """
     Load dictionary from file into efficient data structures for efficient search and retrieval
 
     :param input_file: a text file dictonary holding one item per line
     :param encoding: the encoding of the dictionary file
+    :param transliteration_locales: optional locale name (e.g. 'de_DE') or list of locale names (e.g. ['de_DE', 'en_US']);
+        if given, transliterated keys are additionally registered for dictionary entries, so that transliterated
+        compounds can be split (de: ä -> ae, other locales like en_US: ä -> a); default None: no transliteration
     :return: ahocorasick.Automaton, data structure for efficient search and retrieval
     """
     # initialize the efficient data structures
@@ -51,7 +71,24 @@ def read_dictionary_from_file(input_file: str, encoding: str = 'utf8') -> ahocor
             continue
         # add key as lower-case in order to be able to compare it with any substring in a compound word
         # use the item (i.e. word) and if it's upper case as sort of flag (item can be regarded as noun then)
-        A.add_word(w.lower(), (w[0].isupper(), w))
+        # the third value is the length of the key, needed to compute start positions of matches
+        key = w.lower()
+        A.add_word(key, (w[0].isupper(), w, len(key)))
+
+    # additionally register transliterated keys, they map to the original dictionary word;
+    # real dictionary entries are never overridden
+    if transliteration_locales:
+        if isinstance(transliteration_locales, str):
+            transliteration_locales = [transliteration_locales]
+        tables = [_transliteration_table(loc) for loc in transliteration_locales]
+        for w in input_list:
+            if not w:
+                continue
+            key = w.lower()
+            for table in tables:
+                translit = key.translate(table)
+                if translit != key and translit not in A:
+                    A.add_word(translit, (w[0].isupper(), w, len(translit)))
 
     # generate with data
     A.make_automaton()
@@ -59,7 +96,7 @@ def read_dictionary_from_file(input_file: str, encoding: str = 'utf8') -> ahocor
     return A
 
 
-def _is_abbreviation(tuple: Tuple[bool, str]) -> bool:
+def _is_abbreviation(tuple: Tuple[bool, str, int]) -> bool:
     """
     Checks if value can be interpreted as an abbreviation (thus, not a compound word)
 
@@ -177,7 +214,7 @@ def dissect(compound: str, ahocs: ahocorasick.Automaton, only_nouns: bool = True
             continue
 
         # store each substring having the same end index in the same list but with its own start index attached
-        start = end + 1 - len(val[1])
+        start = end + 1 - val[2]
         if end not in matches:
             matches[end] = []
         matches[end].append((start, val))
