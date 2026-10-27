@@ -6,6 +6,8 @@
 # Copyright 2020 by repodiac (see https://github.com/repodiac, also for information how to provide attribution to this work)
 #
 
+from typing import List, Optional, Tuple
+
 import ahocorasick
 
 # selection of common prefixes
@@ -27,18 +29,19 @@ PLURAL_TRANSITION_VOWEL = {'ä': 'a',
                            'ö': 'o'}
 
 
-def read_dictionary_from_file(input_file):
+def read_dictionary_from_file(input_file: str, encoding: str = 'utf8') -> ahocorasick.Automaton:
     """
     Load dictionary from file into efficient data structures for efficient search and retrieval
 
     :param input_file: a text file dictonary holding one item per line
+    :param encoding: the encoding of the dictionary file
     :return: ahocorasick.Automaton, data structure for efficient search and retrieval
     """
     # initialize the efficient data structures
     A = ahocorasick.Automaton()
 
     print('Loading data file -', input_file)
-    with open(input_file, 'r', encoding='utf8') as f:
+    with open(input_file, 'r', encoding=encoding) as f:
         input_list = f.read().splitlines()
 
     # load one item per line
@@ -56,7 +59,7 @@ def read_dictionary_from_file(input_file):
     return A
 
 
-def _is_abbreviation(tuple):
+def _is_abbreviation(tuple: Tuple[bool, str]) -> bool:
     """
     Checks if value can be interpreted as an abbreviation (thus, not a compound word)
 
@@ -72,7 +75,7 @@ def _is_abbreviation(tuple):
            or (len(tuple[1]) == 2 and tuple[1][0].isupper() and tuple[1][1].islower())
 
 
-def _check_if_suffix(item):
+def _check_if_suffix(item: str) -> Optional[str]:
     """
     Checks if item starts with a suffix from the list of common suffixes
 
@@ -87,7 +90,7 @@ def _check_if_suffix(item):
     return None
 
 
-def merge_fractions(dissection: list):
+def merge_fractions(dissection: List[str]) -> List[str]:
     """
     Simple method to merge fractions or artifacts as post-processing step after splitting up a compound word
     Merges are carried out, if pre- or suffix are found in the list of common pre-/suffixes; in particular this may be
@@ -96,6 +99,9 @@ def merge_fractions(dissection: list):
     :param dissection: list of split words
     :return: new list with merged split words, in case
     """
+
+    if not dissection:
+        return []
 
     cleaned = []
     ignore_next = False
@@ -119,7 +125,7 @@ def merge_fractions(dissection: list):
     return cleaned
 
 
-def compute_singular(item, ahocs):
+def compute_singular(item: str, ahocs: ahocorasick.Automaton) -> str:
     """
     Computes a singular form of the given item, uses two methods: a) looks up singular form in dictionary
     b) checks for "umlauts" and replaces them by their base vowel
@@ -145,7 +151,8 @@ def compute_singular(item, ahocs):
     return item
 
 
-def dissect(compound, ahocs, only_nouns=True, make_singular=False, mask_unknown=False):
+def dissect(compound: str, ahocs: ahocorasick.Automaton, only_nouns: bool = True,
+            make_singular: bool = False, mask_unknown: bool = False) -> List[str]:
     """
     Dissects any compound word if splits are to be found in loaded dictionary
 
@@ -243,24 +250,24 @@ def dissect(compound, ahocs, only_nouns=True, make_singular=False, mask_unknown=
 
     # post-corrections, e.g. merge invalid splits if split and succeeding split word merged
     # is a valid entry in the dictionary
-    if only_nouns:
-        # workaround to prevent unwanted behaviour (only nouns are eligible)
-        results[0] = results[0][0].upper() + results[0][1:]
+    if only_nouns and results:
+        results[0] = results[0].title()
         for ri in range(len(results) - 1):
             if results[ri].islower():
                 merged = results[ri] + results[ri + 1].lower()
                 if ahocs.exists(merged):
-                    part1 = results[ri]
-                    part2 = results[ri + 1]
-                    results.insert(ri, merged[0].upper() + merged[1:])
-                    results.remove(part1)
-                    results.remove(part2)
+                    results[ri] = merged.title()
+                    results[ri + 1] = ""
                 else:
-                    # workaround for single letters (most likely artifacts)
                     if len(results[ri]) == 1:
-                        aritfact_single_letter = results[ri]
-                        results[ri-1] += aritfact_single_letter
-                        results.remove(aritfact_single_letter)
+                        artifact_single_letter = results[ri]
+                        for i in range(1, ri + 1):
+                            if results[ri - i]:
+                                results[ri - i] += artifact_single_letter
+                                break
+                        results[ri] = ""
+
+    results = list(filter(None, results))
 
     # if set, compute singular version of each split word
     if make_singular:
