@@ -8,6 +8,11 @@ from german_compound_splitter.comp_split import TransliteratingAutomaton
 
 TABLES = {
     'de_DE': str.maketrans({'ö': 'oe', 'ü': 'ue', 'ä': 'ae', 'ß': 'ss'}),
+    'en_US': str.maketrans({'ö': 'o', 'ü': 'u', 'ä': 'a', 'ß': 'ss'}),
+    'fr_FR': str.maketrans({'ö': 'o', 'ü': 'u', 'ä': 'a', 'ß': 'ss'}),
+    # fancy fake locale with long, underscore-delimited replacements
+    'xx_XX': str.maketrans({'ä': '_umlaut_a_translit_', 'ü': '_umlaut_u_translit_',
+                            'ö': '_umlaut_o_translit_', 'ß': '_sharp_s_translit_'}),
     'sv_SE': str.maketrans({'ö': 'o', 'ü': 'u', 'ä': 'a', 'ß': 'ss'}),
 }
 
@@ -16,12 +21,12 @@ def _fake_transliterate(words, loc):
     return [w.translate(TABLES[loc]) for w in words]
 
 
-def _automaton(locales):
+def _automaton(locales, words=('Brötchen', 'Tüte')):
     a = ahocorasick.Automaton()
-    for w in ['Brötchen', 'Tüte', 'Haus']:
+    for w in ['Brötchen', 'Tüte', 'Haus', 'Bär', 'Straße', 'Bar']:
         a.add_word(w.lower(), (True, w, len(w)))
     for loc in locales:
-        for w in ['Brötchen', 'Tüte']:
+        for w in words:
             t = w.lower().translate(TABLES[loc])
             if t not in a:
                 a.add_word(t, (True, w, len(t)))
@@ -92,6 +97,27 @@ class AutomaticOutputTests(unittest.TestCase):
     def test_detection_tie_prefers_first(self):
         ahocs = _automaton(['sv_SE', 'de_DE'])
         self.assertEqual(ahocs.detect_locale('haus', ['Haus']), 'sv_SE')
+
+    def test_fancy_locale_among_real_ones(self):
+        locales = ['de_DE', 'en_US', 'fr_FR', 'xx_XX']
+        words = ('Brötchen', 'Tüte', 'Bär', 'Straße')
+        ahocs = _automaton(locales, words)
+        cases = {
+            'de_DE': 'broetchentuete',
+            'en_US': 'brotchentute',
+            'xx_XX': 'br_umlaut_o_translit_tchent_umlaut_u_translit_te',
+        }
+        for loc, compound in cases.items():
+            with self.subTest(locale=loc):
+                self.assertEqual(ahocs.detect_locale(compound, ['Brötchen', 'Tüte']), loc)
+        self.assertEqual(ahocs.detect_locale('b_umlaut_a_translit_rstra_sharp_s_translit_e', ['Bär', 'Straße']),
+                         'xx_XX')
+        self.assertEqual(ahocs.detect_locale('baerstrasse', ['Bär', 'Straße']), 'de_DE')
+
+    def test_fancy_locale_dissect(self):
+        ahocs = _automaton(['de_DE', 'en_US', 'fr_FR', 'xx_XX'], ('Brötchen', 'Tüte', 'Bär', 'Straße'))
+        result = comp_split.dissect('Br_umlaut_o_translit_tchent_umlaut_u_translit_te', ahocs)
+        self.assertEqual(result, ['Br_umlaut_o_translit_tchen', 'T_umlaut_u_translit_te'])
 
     def test_explicit_locale_overrides(self):
         ahocs = _automaton(['de_DE', 'sv_SE'])
