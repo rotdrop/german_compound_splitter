@@ -25,6 +25,8 @@ MERGE_RIGHT = ['ff', 'au', 'ei', 'ung', 'ion', 'um',
                'ar', 'ät', 'a', 'ie', 'ine', 'euse',  # 'in'
                'chen', 'lein', 'nis', 'ium', 'mus']
 
+_TRANSLITERATABLE = 'äöüß'
+
 PLURAL_SUFFIX = ['en', 'er', 'e', 'n', 's']
 
 
@@ -227,7 +229,8 @@ def compute_singular(item: str, ahocs: ahocorasick.Automaton) -> str:
 
 
 def dissect(compound: str, ahocs: ahocorasick.Automaton, only_nouns: bool = True,
-            make_singular: bool = False, mask_unknown: bool = False) -> List[str]:
+            make_singular: bool = False, mask_unknown: bool = False,
+            transliteration_locale: Optional[str] = None) -> List[str]:
     """
     Dissects any compound word if splits are to be found in loaded dictionary
 
@@ -236,6 +239,9 @@ def dissect(compound: str, ahocs: ahocorasick.Automaton, only_nouns: bool = True
     :param only_nouns: if True (default), return only recognized nouns, no pre- or suffixes and no verbs or adjectives
     :param make_singular: if True, compute simple approach to extract singular form for each split word, default is False
     :param mask_unknown: if True, mask each part which is unknown from the dictionary, if False (default) the method tries to insert it anyway as lower-case; often this is still valid, but can come with artifacts sometimes
+    :param transliteration_locale: optional locale name (e.g. 'de_DE'); if given and the compound contains none of
+        the characters ä, ö, ü, ß but any split word does, the split words are transliterated with iconv for this
+        locale (e.g. 'Schuhe' stays, 'Brötchen' -> 'Broetchen' for de_DE); default None: no transliteration
     :return: list of strings, holding all the split words from the compound
     """
 
@@ -348,5 +354,10 @@ def dissect(compound: str, ahocs: ahocorasick.Automaton, only_nouns: bool = True
     if make_singular:
         for ri in range(len(results)):
             results[ri] = compute_singular(results[ri], ahocs)
+
+    if transliteration_locale and results \
+            and not any(c in _TRANSLITERATABLE for c in compound.lower()) \
+            and any(c in _TRANSLITERATABLE for r in results for c in r.lower()):
+        results = _transliterate_words(results, transliteration_locale)
 
     return results

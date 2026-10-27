@@ -90,6 +90,12 @@ ahocs = comp_split.read_dictionary_from_file(input_file, transliteration_locales
 
 Transliteration uses the system `iconv` command with `ASCII//TRANSLIT`. Each locale is checked through libc, so bare names such as `de_DE` and `en_US` are accepted when available; the setting is restored after validation. The iconv transliteration behavior is also probed, and an error is raised if the locale falls back to replacing `ä` with `?`. A list of locales may be given. Transliterated keys never override real dictionary entries, and the returned split words are the original dictionary forms (with umlauts). It is off by default; the automaton must be rebuilt to change it.
 
+To also get transliterated output, pass the target locale to `dissect`: if the compound contains none of `ä ö ü ß` but a split word does, the split words are transliterated with `iconv` for that locale:
+
+```python
+comp_split.dissect('Broetchentuete', ahocs, transliteration_locale='de_DE')  # ['Broetchen', 'Tuete']
+```
+
 ## Performance
 
 If you have multiple splittings (or multiple compound words) to process, it is advisable to load the dictionary only **once** and reuse the `ahocorasick` automaton every other time -- loading the dictionary can take a few seconds depending on your machine. However, the actual split up work is blazing fast, thanks to `pyahocorasick`'s implementation and you can easily process a lot of compound words in very little time.
