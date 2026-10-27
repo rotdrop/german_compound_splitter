@@ -2,7 +2,7 @@
 
 [![codecov](https://codecov.io/gh/rotdrop/german_compound_splitter/branch/master/graph/badge.svg)](https://codecov.io/gh/rotdrop/german_compound_splitter)
 
-This package is based on the work of [repodiac](https://github.com/repodiac), the author of the [upstream german_compound_splitter package](https://github.com/repodiac/german_compound_splitter), and has been significantly modified. The original author is in no way responsible for the contents of this repository.
+This package is based on the work of [repodiac](https://github.com/repodiac), the author of the [upstream german_compound_splitter package](https://github.com/repodiac/german_compound_splitter), and has been significantly modified. The original author is in no way responsible for the contents of this repository or for any errors in this derived work.
 
 **german_compound_splitter** is a Python module to split up German compound words (for instance the famous *Donaudampfschifffahrtskapitänsmützenabzeichen*), based on a given external German dictionary and a highly-efficient implementation of the [Aho–Corasick algorithm](https://en.wikipedia.org/wiki/Aho%E2%80%93Corasick_algorithm), [pyahocorasick](https://pypi.org/project/pyahocorasick/), for multi-pattern string search and retrieval.
 
@@ -20,9 +20,9 @@ This is also true for words where you wonder why they haven't been split up appr
 
 This work is licensed under the Creative Commons Attribution 4.0 International License. To view a copy of this license, visit http://creativecommons.org/licenses/by/4.0/ or send a letter to Creative Commons, PO Box 1866, Mountain View, CA 94042, USA.
 
-To provide **attribution or cite this work** please use the following text snippet:
+When using, redistributing, or citing this repository, include the following notice to make clear that you used this modified derived work, not the upstream project, and that the upstream author is not responsible for its contents:
 ```
-german_compound_splitter, Copyright 2020 by repodiac, see https://github.com/repodiac for updates and further information
+Based on german_compound_splitter by repodiac (https://github.com/repodiac/german_compound_splitter); this use is of the modified derived work at https://github.com/rotdrop/german_compound_splitter. The upstream author is not responsible for this derived work or its errors.
 ```
 
 ## Version History
