@@ -1,0 +1,41 @@
+name: Update contributors
+
+on:
+  pull_request_target:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  add-contributor:
+    if: github.event.pull_request.merged == true && github.event.pull_request.user.type != 'Bot'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Add author to CONTRIBUTORS.md if missing
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          LOGIN: ${{ github.event.pull_request.user.login }}
+        run: |
+          if grep -qiF "(https://github.com/${LOGIN})" CONTRIBUTORS.md; then
+            echo "${LOGIN} already listed."
+            exit 0
+          fi
+          name=$(gh api "users/${LOGIN}" -q '.name // ""')
+          email=$(gh api "users/${LOGIN}" -q '.email // ""')
+          entry="- "
+          [ -n "$name" ] && entry+="${name} "
+          [ -n "$email" ] && entry+="<${email}> — "
+          [ -z "$email" ] && [ -n "$name" ] && entry+="— "
+          entry+="[${LOGIN}](https://github.com/${LOGIN})"
+          printf '%s\n' "$entry" >> CONTRIBUTORS.md
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add CONTRIBUTORS.md
+          git commit -m "Add ${LOGIN} to CONTRIBUTORS.md"
+          git push origin HEAD:main
