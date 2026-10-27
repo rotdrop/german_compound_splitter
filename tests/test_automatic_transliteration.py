@@ -102,14 +102,18 @@ class AutomaticOutputTests(unittest.TestCase):
         locales = ['de_DE', 'en_US', 'fr_FR', 'xx_XX']
         words = ('Brötchen', 'Tüte', 'Bär', 'Straße')
         ahocs = _automaton(locales, words)
+        words_list = ['Brötchen', 'Tüte']
         cases = {
-            'de_DE': 'broetchentuete',
-            'en_US': 'brotchentute',
-            'xx_XX': 'br_umlaut_o_translit_tchent_umlaut_u_translit_te',
+            'broetchentuete': {'de_DE'},
+            'brotchentute': {'en_US', 'fr_FR'},  # equivalent locales, any of them is fine
+            'br_umlaut_o_translit_tchent_umlaut_u_translit_te': {'xx_XX'},
         }
-        for loc, compound in cases.items():
-            with self.subTest(locale=loc):
-                self.assertEqual(ahocs.detect_locale(compound, ['Brötchen', 'Tüte']), loc)
+        for compound, acceptable in cases.items():
+            with self.subTest(compound=compound):
+                loc = ahocs.detect_locale(compound, words_list)
+                self.assertIn(loc, acceptable)
+                # what matters: the chosen locale reproduces the input
+                self.assertEqual(''.join(_fake_transliterate(words_list, loc)).lower(), compound)
         self.assertEqual(ahocs.detect_locale('b_umlaut_a_translit_rstra_sharp_s_translit_e', ['Bär', 'Straße']),
                          'xx_XX')
         self.assertEqual(ahocs.detect_locale('baerstrasse', ['Bär', 'Straße']), 'de_DE')

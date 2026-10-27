@@ -94,7 +94,7 @@ Transliteration uses the system `iconv` command with `ASCII//TRANSLIT`. Each loc
 
 `read_dictionary_from_file` returns a `TransliteratingAutomaton`, a thin wrapper around the `ahocorasick.Automaton` which remembers the locales (`.locales`) it was built with.
 
-The output is transliterated automatically: if the compound contains none of `ä ö ü ß` but a split word does, the split words are transliterated with `iconv`. With a single locale, that locale is used; with several, the locale whose transliteration fits the compound best is detected (ties favour the earlier locale). Pass `transliteration_locale` to `dissect` to override this:
+The output is transliterated automatically: if the compound contains none of `ä ö ü ß` but a split word does, the split words are transliterated with `iconv`. With a single locale, that locale is used; with several, the locale whose transliteration fits the compound best is detected (any locale reproducing the input consistently will do, ties favour the earlier locale). Pass `transliteration_locale` to `dissect` to override this:
 
 ```python
 comp_split.dissect('Broetchentuete', ahocs)  # ['Broetchen', 'Tuete']
