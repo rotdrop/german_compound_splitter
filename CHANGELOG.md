@@ -5,6 +5,12 @@ the release workflow fails otherwise.
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-10-28
+
+### Fixed
+- Accept valid `iconv` transliteration output even when `iconv` exits non-zero
+  (#17, #18).
+
 ## [0.1.4] - 2026-10-27
 
 ### Added
