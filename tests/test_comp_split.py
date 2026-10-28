@@ -16,12 +16,27 @@ def _automaton(*words):
 
 
 class TransliterationTests(unittest.TestCase):
+    def test_nonzero_exit_status_with_valid_output_is_accepted(self):
+        result = SimpleNamespace(stdout='ae', stderr='warning', returncode=1)
+        with mock.patch.object(comp_split.subprocess, 'run', return_value=result) as run:
+            self.assertEqual(comp_split._transliterate_words(['ä'], 'de_DE'), ['ae'])
+            comp_split._validate_iconv_locales(['de_DE'])
+        self.assertTrue(all('check' not in call.kwargs for call in run.call_args_list))
+
     def test_transliteration_reports_iconv_errors(self):
         with mock.patch.object(
                 comp_split.subprocess, 'run',
-                return_value=SimpleNamespace(stdout='', stderr='conversion failed')):
+                return_value=SimpleNamespace(stdout='', stderr='conversion failed', returncode=1)):
             with self.assertRaisesRegex(RuntimeError, 'conversion failed'):
                 comp_split._transliterate_words(['ä'], 'de_DE')
+
+    def test_iconv_locale_validation_rejects_empty_or_untransliterated_output(self):
+        for output in ('', '?'):
+            with self.subTest(output=output), mock.patch.object(
+                    comp_split.subprocess, 'run',
+                    return_value=SimpleNamespace(stdout=output, stderr='', returncode=0)):
+                with self.assertRaisesRegex(ValueError, 'does not support iconv transliteration'):
+                    comp_split._validate_iconv_locales(['de_DE'])
 
     def test_transliteration_rejects_unexpected_line_count(self):
         with mock.patch.object(
