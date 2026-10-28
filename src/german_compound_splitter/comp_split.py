@@ -51,11 +51,12 @@ def _validate_iconv_locales(locales: List[str]) -> None:
             ['iconv', '-f', 'UTF-8', '-t', 'ASCII//TRANSLIT'],
             input='ä',
             capture_output=True,
-            check=True,
             encoding='utf-8',
             env=env,
         )
-        if '?' in result.stdout:
+        # glibc 2.43 (Ubuntu 26.04 LTS) returns exit status 1 despite a correct transliteration,
+        # glibc 2.44 returns 0; so judge by the output only.
+        if '?' in result.stdout or not result.stdout.strip():
             raise ValueError("Locale '{}' does not support iconv transliteration".format(name))
 
 
@@ -66,15 +67,17 @@ def _transliterate_words(words: List[str], locale: str) -> List[str]:
         ['iconv', '-f', 'UTF-8', '-t', 'ASCII//TRANSLIT'],
         input='\n'.join(words),
         capture_output=True,
-        check=True,
         encoding='utf-8',
         env=env,
     )
-    if result.stderr:
-        raise RuntimeError('iconv transliteration failed: ' + result.stderr.strip())
+    # The exit status is not reliable (glibc 2.43 returns 1 despite a correct result); validate the
+    # output instead.
     transliterated = result.stdout.splitlines()
     if len(transliterated) != len(words):
-        raise RuntimeError('iconv returned an unexpected number of transliterated words')
+        raise RuntimeError(
+            'iconv returned an unexpected number of transliterated words'
+            + (': ' + result.stderr.strip() if result.stderr.strip() else '')
+        )
     return transliterated
 
 
